@@ -1,0 +1,21 @@
+{
+  "name": "wasm",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "build": "node esbuild.js && extism-js dist/index.js -i src/index.d.ts -o dist/sandbox.wasm",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "@esbuild-plugins/node-modules-polyfill": "^0.2.2",
+    "@extism/js-pdk": "^1.1.1",
+    "esbuild": "^0.27.1"
+  },
+  "dependencies": {
+    "fastest-levenshtein": "^1.0.16"
+  }
+}

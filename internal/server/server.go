@@ -12,7 +12,7 @@ import (
 
 // ExecuteCodeArgs represents the arguments for the execute_code tool
 type ExecuteCodeArgs struct {
-	Code string `json:"code" jsonschema:"JavaScript code to execute in sandbox"`
+	Code string `json:"code" jsonschema:"TypeScript code to execute in sandbox"`
 }
 
 // GetMcpToolsArgs represents the arguments for the get_mcp_tools tool
@@ -31,13 +31,13 @@ func NewMCPServer(sessionMgr *session.Manager) *mcp.Server {
 		Name:    "codebraid-mcp",
 		Version: "1.0.0",
 	}, &mcp.ServerOptions{
-		Instructions: "MCP orchestrator with JavaScript code execution sandbox. Use execute_code to run JavaScript that can call downstream MCP tools via callTool(serverName, toolName, args).",
+		Instructions: "MCP orchestrator with TypeScript code execution sandbox. Use execute_code to run TypeScript that can call downstream MCP tools via callTool(serverName, toolName, args).",
 	})
 
 	// Register execute_code tool
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "execute_code",
-		Description: "Execute JavaScript code in a sandbox with access to downstream MCP tools via callTool(serverName, toolName, args)",
+		Description: "Execute TypeScript code in a sandbox with access to downstream MCP tools via callTool(serverName, toolName, args)",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args ExecuteCodeArgs) (*mcp.CallToolResult, any, error) {
 		// Get or create session context
 		sessionCtx, err := sessionMgr.GetOrCreateSession(ctx, req.Session.ID())
@@ -49,7 +49,7 @@ func NewMCPServer(sessionMgr *session.Manager) *mcp.Server {
 		}
 
 		// Create sandbox with clientbox
-		sb, err := sandbox.NewSandbox(ctx, "./plugin/plugin.wasm", sessionCtx.ClientBox)
+		sb, err := sandbox.NewSandbox(ctx, "./wasm/dist/sandbox.wasm", sessionCtx.ClientBox)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create sandbox: %w", err)
 		}

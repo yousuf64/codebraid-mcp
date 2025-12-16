@@ -1,0 +1,8 @@
+{
+  "compilerOptions": {
+    "lib": [], // this ensures unsupported globals aren't suggested
+    "types": ["@extism/js-pdk"], // while this makes the IDE aware of the ones that are
+    "noEmit": true // this is only relevant for tsconfig.json
+  },
+  "include": ["src/**/*"]
+}
