@@ -82,16 +82,17 @@ func createStdioTransport(cfg config.McpServerConfig) (mcp.Transport, error) {
 	return &mcp.CommandTransport{Command: cmd}, nil
 }
 
-// LoggingRoundTripper is a custom RoundTripper for logging requests/responses
-type LoggingRoundTripper struct {
-	auth string
-	next http.RoundTripper
+// McpClientRoundTripper is a custom RoundTripper for injecting configured headers into MCP client requests
+type McpClientRoundTripper struct {
+	headers map[string]string
+	next    http.RoundTripper
 }
 
 // RoundTrip implements the http.RoundTripper interface
-func (lrt *LoggingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	req.Header.Set("Authorization", lrt.auth)
-	// TODO: Rename the round tripper and add all the headers here.
+func (lrt *McpClientRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	for k, v := range lrt.headers {
+		req.Header.Set(k, v)
+	}
 
 	// Execute the actual request by calling the "next" RoundTripper
 	resp, err := lrt.next.RoundTrip(req)
@@ -102,9 +103,9 @@ func (lrt *LoggingRoundTripper) RoundTrip(req *http.Request) (*http.Response, er
 
 func createHttpTransport(cfg config.McpServerConfig) (mcp.Transport, error) {
 	c := &http.Client{}
-	c.Transport = &LoggingRoundTripper{
-		auth: cfg.Headers["Authorization"],
-		next: http.DefaultTransport,
+	c.Transport = &McpClientRoundTripper{
+		headers: cfg.Headers,
+		next:    http.DefaultTransport,
 	}
 
 	return &mcp.StreamableClientTransport{
