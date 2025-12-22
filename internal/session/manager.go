@@ -11,7 +11,7 @@ import (
 
 // Manager manages session contexts
 type Manager struct {
-	sessions map[string]*Context
+	sessions map[string]*SessionContext
 	mu       sync.RWMutex
 	config   *config.Config
 }
@@ -19,13 +19,13 @@ type Manager struct {
 // NewManager creates a new session manager
 func NewManager(cfg *config.Config) *Manager {
 	return &Manager{
-		sessions: make(map[string]*Context),
+		sessions: make(map[string]*SessionContext),
 		config:   cfg,
 	}
 }
 
 // GetOrCreateSession gets an existing session or creates a new one
-func (m *Manager) GetOrCreateSession(ctx context.Context, sessionID string) (*Context, error) {
+func (m *Manager) GetOrCreateSession(ctx context.Context, sessionID string) (*SessionContext, error) {
 	// Try to get existing session
 	m.mu.RLock()
 	session, exists := m.sessions[sessionID]
@@ -49,15 +49,15 @@ func (m *Manager) GetOrCreateSession(ctx context.Context, sessionID string) (*Co
 	if err := clientBox.Connect(ctx, m.config); err != nil {
 		return nil, fmt.Errorf("failed to connect clientbox: %w", err)
 	}
-
-	session = NewContext(sessionID, clientBox)
+	
+	session = NewSessionContext(ctx, sessionID, clientBox)
 	m.sessions[sessionID] = session
 
 	return session, nil
 }
 
 // GetSession retrieves an existing session
-func (m *Manager) GetSession(sessionID string) *Context {
+func (m *Manager) GetSession(sessionID string) *SessionContext {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.sessions[sessionID]
@@ -94,7 +94,7 @@ func (m *Manager) CloseAll() error {
 		}
 	}
 
-	m.sessions = make(map[string]*Context)
+	m.sessions = make(map[string]*SessionContext)
 
 	if len(errs) > 0 {
 		return fmt.Errorf("errors closing sessions: %v", errs)

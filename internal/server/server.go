@@ -5,13 +5,91 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/yousuf/codebraid-mcp/internal/codegen"
+	"log"
+	"time"
+
 	"strings"
+
+	"github.com/yousuf/codebraid-mcp/internal/codegen"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/yousuf/codebraid-mcp/internal/sandbox"
 	"github.com/yousuf/codebraid-mcp/internal/session"
 )
+
+// getSessionContext extracts SessionContext from context via type assertion.
+// Since SessionContext embeds context.Context, the middleware passes it directly.
+func getSessionContext(ctx context.Context) (*session.SessionContext, error) {
+	sessionCtx, ok := ctx.(*session.SessionContext)
+	if !ok {
+		return nil, fmt.Errorf("context is not a SessionContext")
+	}
+	return sessionCtx, nil
+}
+
+// createSessionInjectionMiddleware creates middleware that automatically manages session lifecycle.
+// It replaces the incoming context with SessionContext, which embeds context.Context.
+func createSessionInjectionMiddleware(sessionMgr *session.Manager) mcp.Middleware {
+	return func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(
+			ctx context.Context,
+			method string,
+			req mcp.Request,
+		) (mcp.Result, error) {
+			sessionID := req.GetSession().ID()
+
+			// Get or create session context
+			sessionCtx, err := sessionMgr.GetOrCreateSession(ctx, sessionID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get/create session: %w", err)
+			}
+
+			if sessionCtx == nil {
+				return nil, fmt.Errorf("invalid session context")
+			}
+
+			// Update last accessed timestamp
+			sessionCtx.UpdateLastAccessed()
+
+			// Pass SessionContext directly as the context (no WithValue needed)
+			// This works because SessionContext embeds context.Context
+			return next(sessionCtx, method, req)
+		}
+	}
+}
+
+// createLoggingMiddleware creates middleware that logs all MCP method calls
+func createLoggingMiddleware() mcp.Middleware {
+	return func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(
+			ctx context.Context,
+			method string,
+			req mcp.Request,
+		) (mcp.Result, error) {
+			start := time.Now()
+			sessionID := req.GetSession().ID()
+
+			// Log request details
+			log.Printf("[REQUEST] Session: %s | Method: %s", sessionID, method)
+
+			// Call the actual handler
+			result, err := next(ctx, method, req)
+
+			// Log response details
+			duration := time.Since(start)
+
+			if err != nil {
+				log.Printf("[RESPONSE] Session: %s | Method: %s | Status: ERROR | Duration: %v | Error: %v",
+					sessionID, method, duration, err)
+			} else {
+				log.Printf("[RESPONSE] Session: %s | Method: %s | Status: OK | Duration: %v",
+					sessionID, method, duration)
+			}
+
+			return result, err
+		}
+	}
+}
 
 // ExecuteCodeArgs represents the arguments for the execute_code tool
 type ExecuteCodeArgs struct {
@@ -52,6 +130,9 @@ Before calling "execute_code", use "read_file" to get a better idea on the expor
 `,
 	})
 
+	server.AddReceivingMiddleware(createSessionInjectionMiddleware(sessionMgr))
+	server.AddReceivingMiddleware(createLoggingMiddleware())
+
 	// Register execute_code tool
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "execute_code",
@@ -66,17 +147,13 @@ Before calling "execute_code", use "read_file" to get a better idea on the expor
 			}
 `,
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args ExecuteCodeArgs) (*mcp.CallToolResult, any, error) {
-		// Get or create session context
-		sessionCtx, err := sessionMgr.GetOrCreateSession(ctx, req.Session.ID())
+		sessionCtx, err := getSessionContext(ctx)
 		if err != nil {
 			return nil, nil, err
 		}
-		if sessionCtx == nil {
-			return nil, nil, fmt.Errorf("invalid session")
-		}
 
 		// Create sandbox with clientbox
-		sb, err := sandbox.NewSandbox(ctx, "./wasm/dist/sandbox.wasm", sessionCtx.ClientBox)
+		sb, err := sandbox.NewSandbox(sessionCtx, "./wasm/dist/sandbox.wasm", sessionCtx.ClientBox)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create sandbox: %w", err)
 		}
@@ -100,13 +177,9 @@ Before calling "execute_code", use "read_file" to get a better idea on the expor
 		Name:        "get_files",
 		Description: "List all files in the `lib` directory",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args GetMcpToolsArgs) (*mcp.CallToolResult, any, error) {
-		// Get or create session context
-		sessionCtx, err := sessionMgr.GetOrCreateSession(ctx, req.Session.ID())
+		sessionCtx, err := getSessionContext(ctx)
 		if err != nil {
 			return nil, nil, err
-		}
-		if sessionCtx == nil {
-			return nil, nil, fmt.Errorf("invalid session")
 		}
 
 		var toolsJSON []byte
@@ -162,13 +235,9 @@ Before calling "execute_code", use "read_file" to get a better idea on the expor
 		Name:        "read_file",
 		Description: "Read a file from `lib` directory",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args GetMcpFileArgs) (*mcp.CallToolResult, any, error) {
-		// Get or create session context
-		sessionCtx, err := sessionMgr.GetOrCreateSession(ctx, req.Session.ID())
+		sessionCtx, err := getSessionContext(ctx)
 		if err != nil {
 			return nil, nil, err
-		}
-		if sessionCtx == nil {
-			return nil, nil, fmt.Errorf("invalid session")
 		}
 
 		intr := codegen.NewIntrospector(sessionCtx.ClientBox)
@@ -182,7 +251,7 @@ Before calling "execute_code", use "read_file" to get a better idea on the expor
 		if args.FileName == "mcp-types" {
 			file = tsgen.GenerateMCPTypesFile()
 		} else {
-			tools, err := intr.IntrospectServer(ctx, args.FileName)
+			tools, err := intr.IntrospectServer(sessionCtx, args.FileName)
 			if err != nil {
 				return nil, nil, err
 			}
