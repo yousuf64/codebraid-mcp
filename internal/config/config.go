@@ -264,7 +264,7 @@ func inferServerTypes(config *Config) {
 		} else if hasCommand {
 			server.Type = "stdio"
 		} else if hasURL {
-			// Leave as empty - clientbox will try HTTP first, then SSE
+			// Leave as empty - McpClientHub will try HTTP first, then SSE
 			server.Type = ""
 		}
 

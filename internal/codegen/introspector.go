@@ -9,19 +9,19 @@ import (
 
 // Introspector discovers and extracts tool definitions from MCP servers
 type Introspector struct {
-	clientBox *client.ClientBox
+	clientHub *client.McpClientHub
 }
 
 // NewIntrospector creates a new introspector
-func NewIntrospector(clientBox *client.ClientBox) *Introspector {
+func NewIntrospector(clientHub *client.McpClientHub) *Introspector {
 	return &Introspector{
-		clientBox: clientBox,
+		clientHub: clientHub,
 	}
 }
 
 // IntrospectAll discovers all tools from all connected MCP servers
 func (i *Introspector) IntrospectAll(ctx context.Context) ([]ToolDefinition, error) {
-	allTools := i.clientBox.ListTools()
+	allTools := i.clientHub.ListTools()
 
 	definitions := make([]ToolDefinition, 0)
 
@@ -56,7 +56,7 @@ func (i *Introspector) IntrospectAll(ctx context.Context) ([]ToolDefinition, err
 
 // IntrospectServer discovers tools from a specific MCP server
 func (i *Introspector) IntrospectServer(ctx context.Context, serverName string) ([]ToolDefinition, error) {
-	allTools := i.clientBox.ListTools()
+	allTools := i.clientHub.ListTools()
 
 	tools, exists := allTools[serverName]
 	if !exists {
@@ -105,7 +105,7 @@ func GroupByServer(tools []ToolDefinition) map[string][]ToolDefinition {
 
 // ListServers returns a list of all available server names
 func (i *Introspector) ListServers() []string {
-	allTools := i.clientBox.ListTools()
+	allTools := i.clientHub.ListTools()
 	servers := make([]string, 0, len(allTools))
 
 	for serverName := range allTools {

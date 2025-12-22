@@ -75,7 +75,7 @@ Before calling "execute_code", use "read_file" to get a better idea on the expor
 		}
 
 		// Create sandbox with request context (respects request cancellation)
-		sb, err := sandbox.NewSandbox(ctx, "./wasm/dist/sandbox.wasm", sessionCtx.ClientBox)
+		sb, err := sandbox.NewSandbox(ctx, "./wasm/dist/sandbox.wasm", sessionCtx.ClientHub)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create sandbox: %w", err)
 		}
@@ -108,7 +108,7 @@ Before calling "execute_code", use "read_file" to get a better idea on the expor
 		var toolsTreeBuf = bytes.Buffer{}
 
 		if args.WithDescription {
-			tools := sessionCtx.ClientBox.GetToolsWithDescription()
+			tools := sessionCtx.ClientHub.GetToolsWithDescription()
 			toolsJSON, err = json.MarshalIndent(tools, "", "  ")
 
 			for svr, toolList := range tools {
@@ -119,7 +119,7 @@ Before calling "execute_code", use "read_file" to get a better idea on the expor
 				}
 			}
 		} else {
-			tools := sessionCtx.ClientBox.ListTools()
+			tools := sessionCtx.ClientHub.ListTools()
 			// Convert to simpler format (just tool names)
 			simpleTools := make(map[string][]string)
 			for server, toolList := range tools {
@@ -162,7 +162,7 @@ Before calling "execute_code", use "read_file" to get a better idea on the expor
 			return nil, nil, err
 		}
 
-		intr := codegen.NewIntrospector(sessionCtx.ClientBox)
+		intr := codegen.NewIntrospector(sessionCtx.ClientHub)
 		if args.FileName[len(args.FileName)-3:] == ".ts" {
 			args.FileName = args.FileName[:len(args.FileName)-3]
 		}
@@ -215,7 +215,7 @@ Before calling "execute_code", use "read_file" to get a better idea on the expor
 	//		return nil, nil, fmt.Errorf("invalid session")
 	//	}
 	//
-	//	allTools := sessionCtx.ClientBox.ListTools()
+	//	allTools := sessionCtx.ClientHub.ListTools()
 	//
 	//	// Find the tool
 	//	var foundTool *mcp.Tool

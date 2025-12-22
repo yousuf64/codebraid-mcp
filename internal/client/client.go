@@ -11,15 +11,15 @@ import (
 	"github.com/yousuf/codebraid-mcp/internal/config"
 )
 
-// MCPClient wraps an MCP client connection
-type MCPClient struct {
+// McpClient wraps an MCP client connection
+type McpClient struct {
 	name    string
 	session *mcp.ClientSession
 	tools   []*mcp.Tool
 }
 
-// NewMCPClient creates a new MCP client based on the configuration
-func NewMCPClient(ctx context.Context, name string, cfg config.McpServerConfig) (*MCPClient, error) {
+// NewMcpClient creates a new MCP client based on the configuration
+func NewMcpClient(ctx context.Context, name string, cfg config.McpServerConfig) (*McpClient, error) {
 	var transport mcp.Transport
 	var err error
 	var usedTransport string
@@ -88,7 +88,7 @@ func NewMCPClient(ctx context.Context, name string, cfg config.McpServerConfig) 
 		return nil, fmt.Errorf("failed to list tools: %w", err)
 	}
 
-	return &MCPClient{
+	return &McpClient{
 		name:    name,
 		session: session,
 		tools:   toolsResult.Tools,
@@ -156,7 +156,7 @@ func createSSETransport(cfg config.McpServerConfig) (mcp.Transport, error) {
 }
 
 // CallTool calls a tool on this MCP client
-func (c *MCPClient) CallTool(ctx context.Context, toolName string, args map[string]interface{}) (*mcp.CallToolResult, error) {
+func (c *McpClient) CallTool(ctx context.Context, toolName string, args map[string]interface{}) (*mcp.CallToolResult, error) {
 	return c.session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      toolName,
 		Arguments: args,
@@ -164,17 +164,17 @@ func (c *MCPClient) CallTool(ctx context.Context, toolName string, args map[stri
 }
 
 // GetTools returns the list of available tools
-func (c *MCPClient) GetTools() []*mcp.Tool {
+func (c *McpClient) GetTools() []*mcp.Tool {
 	return c.tools
 }
 
 // GetName returns the client name
-func (c *MCPClient) GetName() string {
+func (c *McpClient) GetName() string {
 	return c.name
 }
 
 // Close closes the client connection
-func (c *MCPClient) Close() error {
+func (c *McpClient) Close() error {
 	if c.session != nil {
 		return c.session.Close()
 	}

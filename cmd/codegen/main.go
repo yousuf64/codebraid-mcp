@@ -43,18 +43,18 @@ func run() error {
 		return fmt.Errorf("failed to load config: %w\n\nHint: Specify a config file with -config flag or CODEBRAID_CONFIG env var", err)
 	}
 
-	// Create ClientBox and connect to MCP servers
+	// Create McpClientHub and connect to MCP servers
 	if *verbose {
 		fmt.Println("Connecting to MCP servers...")
 	}
-	clientBox := client.NewClientBox()
-	if err := clientBox.Connect(ctx, cfg); err != nil {
+	clientHub := client.NewMcpClientHub()
+	if err := clientHub.Connect(ctx, cfg); err != nil {
 		return fmt.Errorf("failed to connect to MCP servers: %w", err)
 	}
-	defer clientBox.Close()
+	defer clientHub.Close()
 
 	// Create introspector
-	introspector := codegen.NewIntrospector(clientBox)
+	introspector := codegen.NewIntrospector(clientHub)
 
 	// Determine which servers to process
 	var serversToProcess []string

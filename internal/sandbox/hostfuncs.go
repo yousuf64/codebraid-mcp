@@ -46,7 +46,7 @@ func createCallMcpToolHostFunc(sb *Sandbox) extism.HostFunction {
 			plugin.Logf(extism.LogLevelInfo, "Calling MCP tool: %s.%s", toolCall.ServerName, toolCall.ToolName)
 
 			// Make synchronous MCP call
-			result, err := sb.clientBox.CallTool(sb.ctx, toolCall.ServerName, toolCall.ToolName, toolCall.Args)
+			result, err := sb.clientHub.CallTool(sb.ctx, toolCall.ServerName, toolCall.ToolName, toolCall.Args)
 			if err != nil {
 				plugin.Logf(extism.LogLevelError, "Failed to call MCP tool: %v", err)
 

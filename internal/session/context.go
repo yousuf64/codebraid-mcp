@@ -11,18 +11,18 @@ import (
 // It stores session data independently of request contexts.
 type SessionContext struct {
 	SessionID      string
-	ClientBox      *client.ClientBox
+	ClientHub      *client.McpClientHub
 	CreatedAt      time.Time
 	lastAccessedAt time.Time
 	mu             sync.RWMutex
 }
 
 // NewSessionContext creates a new session context.
-func NewSessionContext(sessionID string, clientBox *client.ClientBox) *SessionContext {
+func NewSessionContext(sessionID string, clientHub *client.McpClientHub) *SessionContext {
 	now := time.Now()
 	return &SessionContext{
 		SessionID:      sessionID,
-		ClientBox:      clientBox,
+		ClientHub:      clientHub,
 		CreatedAt:      now,
 		lastAccessedAt: now,
 	}

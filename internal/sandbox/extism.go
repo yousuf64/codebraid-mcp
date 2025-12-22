@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
 	extism "github.com/extism/go-sdk"
 	"github.com/yousuf/codebraid-mcp/internal/client"
 	"github.com/yousuf/codebraid-mcp/internal/codegen"
@@ -13,14 +14,14 @@ import (
 // Sandbox provides a WebAssembly execution environment for user code
 type Sandbox struct {
 	plugin    *extism.Plugin
-	clientBox *client.ClientBox
+	clientHub *client.McpClientHub
 	ctx       context.Context
 	bundler   *TypeScriptBundler
 	libCache  map[string]string
 }
 
 // NewSandbox creates a new sandbox instance
-func NewSandbox(ctx context.Context, wasmPath string, clientBox *client.ClientBox) (*Sandbox, error) {
+func NewSandbox(ctx context.Context, wasmPath string, clientHub *client.McpClientHub) (*Sandbox, error) {
 	manifest := extism.Manifest{
 		Wasm: []extism.Wasm{
 			extism.WasmFile{
@@ -33,7 +34,7 @@ func NewSandbox(ctx context.Context, wasmPath string, clientBox *client.ClientBo
 		EnableWasi: true,
 	}
 
-	intr := codegen.NewIntrospector(clientBox)
+	intr := codegen.NewIntrospector(clientHub)
 	allTools, err := intr.IntrospectAll(ctx)
 	if err != nil {
 		return nil, err
@@ -57,7 +58,7 @@ func NewSandbox(ctx context.Context, wasmPath string, clientBox *client.ClientBo
 	}
 
 	sb := &Sandbox{
-		clientBox: clientBox,
+		clientHub: clientHub,
 		ctx:       ctx,
 		bundler:   bundler,
 		libCache:  libCache,

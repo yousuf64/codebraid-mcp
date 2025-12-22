@@ -9,40 +9,40 @@ import (
 	"github.com/yousuf/codebraid-mcp/internal/config"
 )
 
-// ClientBox manages multiple MCP client connections
-type ClientBox struct {
-	clients map[string]*MCPClient
+// McpClientHub manages multiple MCP client connections
+type McpClientHub struct {
+	clients map[string]*McpClient
 	mu      sync.RWMutex
 }
 
-// NewClientBox creates a new ClientBox
-func NewClientBox() *ClientBox {
-	return &ClientBox{
-		clients: make(map[string]*MCPClient),
+// NewMcpClientHub creates a new McpClientHub
+func NewMcpClientHub() *McpClientHub {
+	return &McpClientHub{
+		clients: make(map[string]*McpClient),
 	}
 }
 
 // Connect establishes connections to all configured MCP servers
-func (cb *ClientBox) Connect(ctx context.Context, cfg *config.Config) error {
-	cb.mu.Lock()
-	defer cb.mu.Unlock()
+func (ch *McpClientHub) Connect(ctx context.Context, cfg *config.Config) error {
+	ch.mu.Lock()
+	defer ch.mu.Unlock()
 
 	for name, serverCfg := range cfg.McpServers {
-		client, err := NewMCPClient(ctx, name, serverCfg)
+		client, err := NewMcpClient(ctx, name, serverCfg)
 		if err != nil {
 			return fmt.Errorf("failed to connect to server %q: %w", name, err)
 		}
-		cb.clients[name] = client
+		ch.clients[name] = client
 	}
 
 	return nil
 }
 
 // CallTool calls a tool on a specific MCP server
-func (cb *ClientBox) CallTool(ctx context.Context, serverName, toolName string, args map[string]interface{}) (*mcp.CallToolResult, error) {
-	cb.mu.RLock()
-	client, exists := cb.clients[serverName]
-	cb.mu.RUnlock()
+func (ch *McpClientHub) CallTool(ctx context.Context, serverName, toolName string, args map[string]interface{}) (*mcp.CallToolResult, error) {
+	ch.mu.RLock()
+	client, exists := ch.clients[serverName]
+	ch.mu.RUnlock()
 
 	if !exists {
 		return nil, fmt.Errorf("server %q not found", serverName)
@@ -52,11 +52,11 @@ func (cb *ClientBox) CallTool(ctx context.Context, serverName, toolName string, 
 }
 
 // FindToolServer finds which server has a specific tool
-func (cb *ClientBox) FindToolServer(toolName string) (string, error) {
-	cb.mu.RLock()
-	defer cb.mu.RUnlock()
+func (ch *McpClientHub) FindToolServer(toolName string) (string, error) {
+	ch.mu.RLock()
+	defer ch.mu.RUnlock()
 
-	for name, client := range cb.clients {
+	for name, client := range ch.clients {
 		for _, tool := range client.GetTools() {
 			if tool.Name == toolName {
 				return name, nil
@@ -68,12 +68,12 @@ func (cb *ClientBox) FindToolServer(toolName string) (string, error) {
 }
 
 // ListTools returns all tools from all servers
-func (cb *ClientBox) ListTools() map[string][]*mcp.Tool {
-	cb.mu.RLock()
-	defer cb.mu.RUnlock()
+func (ch *McpClientHub) ListTools() map[string][]*mcp.Tool {
+	ch.mu.RLock()
+	defer ch.mu.RUnlock()
 
 	result := make(map[string][]*mcp.Tool)
-	for name, client := range cb.clients {
+	for name, client := range ch.clients {
 		result[name] = client.GetTools()
 	}
 
@@ -81,12 +81,12 @@ func (cb *ClientBox) ListTools() map[string][]*mcp.Tool {
 }
 
 // GetToolsWithDescription returns tools with their descriptions
-func (cb *ClientBox) GetToolsWithDescription() map[string][]ToolInfo {
-	cb.mu.RLock()
-	defer cb.mu.RUnlock()
+func (ch *McpClientHub) GetToolsWithDescription() map[string][]ToolInfo {
+	ch.mu.RLock()
+	defer ch.mu.RUnlock()
 
 	result := make(map[string][]ToolInfo)
-	for name, client := range cb.clients {
+	for name, client := range ch.clients {
 		tools := make([]ToolInfo, 0, len(client.GetTools()))
 		for _, tool := range client.GetTools() {
 			tools = append(tools, ToolInfo{
@@ -101,12 +101,12 @@ func (cb *ClientBox) GetToolsWithDescription() map[string][]ToolInfo {
 }
 
 // Close closes all client connections
-func (cb *ClientBox) Close() error {
-	cb.mu.Lock()
-	defer cb.mu.Unlock()
+func (ch *McpClientHub) Close() error {
+	ch.mu.Lock()
+	defer ch.mu.Unlock()
 
 	var errs []error
-	for name, client := range cb.clients {
+	for name, client := range ch.clients {
 		if err := client.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("failed to close client %q: %w", name, err))
 		}

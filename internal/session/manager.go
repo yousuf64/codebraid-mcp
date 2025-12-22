@@ -44,14 +44,14 @@ func (m *Manager) GetOrCreateSession(ctx context.Context, sessionID string) (*Se
 		return session, nil
 	}
 
-	// Create new ClientBox and connect to all servers
-	clientBox := client.NewClientBox()
-	if err := clientBox.Connect(ctx, m.config); err != nil {
-		return nil, fmt.Errorf("failed to connect clientbox: %w", err)
+	// Create new McpClientHub and connect to all servers
+	clientHub := client.NewMcpClientHub()
+	if err := clientHub.Connect(ctx, m.config); err != nil {
+		return nil, fmt.Errorf("failed to connect client hub: %w", err)
 	}
 
 	// Create session context
-	session = NewSessionContext(sessionID, clientBox)
+	session = NewSessionContext(sessionID, clientHub)
 	m.sessions[sessionID] = session
 
 	return session, nil
@@ -75,8 +75,8 @@ func (m *Manager) DeleteSession(sessionID string) error {
 	}
 
 	// Close all client connections
-	if err := session.ClientBox.Close(); err != nil {
-		return fmt.Errorf("failed to close clientbox: %w", err)
+	if err := session.ClientHub.Close(); err != nil {
+		return fmt.Errorf("failed to close client hub: %w", err)
 	}
 
 	delete(m.sessions, sessionID)
@@ -90,7 +90,7 @@ func (m *Manager) CloseAll() error {
 
 	var errs []error
 	for sessionID, session := range m.sessions {
-		if err := session.ClientBox.Close(); err != nil {
+		if err := session.ClientHub.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("session %q: %w", sessionID, err))
 		}
 	}
