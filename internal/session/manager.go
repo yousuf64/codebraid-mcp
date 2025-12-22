@@ -49,8 +49,9 @@ func (m *Manager) GetOrCreateSession(ctx context.Context, sessionID string) (*Se
 	if err := clientBox.Connect(ctx, m.config); err != nil {
 		return nil, fmt.Errorf("failed to connect clientbox: %w", err)
 	}
-	
-	session = NewSessionContext(ctx, sessionID, clientBox)
+
+	// Create session context
+	session = NewSessionContext(sessionID, clientBox)
 	m.sessions[sessionID] = session
 
 	return session, nil

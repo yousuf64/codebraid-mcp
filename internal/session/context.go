@@ -1,7 +1,6 @@
 package session
 
 import (
-	"context"
 	"sync"
 	"time"
 
@@ -9,10 +8,8 @@ import (
 )
 
 // SessionContext represents a session with its associated resources and lifecycle.
-// It embeds context.Context to provide cancellation, deadlines, and value propagation.
+// It stores session data independently of request contexts.
 type SessionContext struct {
-	context.Context // Embedded context for lifecycle management
-
 	SessionID      string
 	ClientBox      *client.ClientBox
 	CreatedAt      time.Time
@@ -20,13 +17,10 @@ type SessionContext struct {
 	mu             sync.RWMutex
 }
 
-// NewSessionContext creates a new session context with the given parent context.
-// The parent context is typically context.Background() for long-lived sessions,
-// but can be any context for testing or request-scoped sessions.
-func NewSessionContext(ctx context.Context, sessionID string, clientBox *client.ClientBox) *SessionContext {
+// NewSessionContext creates a new session context.
+func NewSessionContext(sessionID string, clientBox *client.ClientBox) *SessionContext {
 	now := time.Now()
 	return &SessionContext{
-		Context:        ctx,
 		SessionID:      sessionID,
 		ClientBox:      clientBox,
 		CreatedAt:      now,
