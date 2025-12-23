@@ -115,12 +115,11 @@ func (t *TypeScriptBundler) Bundle(code string) (js string, sourceMap string, er
 		cmd = exec.Command(t.rspackPath, "--entry", index, "--config", configFile, "--output-path", outputDir)
 	}
 
-	var stdout, stderr bytes.Buffer
+	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return "", "", fmt.Errorf("Rspack bundling failed: %w\nStderr: %s", err, stderr.String())
+		return "", "", fmt.Errorf("Error: %w\nStderr: %s", err, stdout.String())
 	}
 
 	jsBytes, err := os.ReadFile(filepath.Join(outputDir, "main.js"))

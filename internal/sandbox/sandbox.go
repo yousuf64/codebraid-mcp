@@ -92,7 +92,7 @@ exec();
 `, code)
 	bundledCode, sourceMap, err := s.bundler.Bundle(codeWithCaller)
 	if err != nil {
-		return "", fmt.Errorf("TypeScript transformation failed: %w", err)
+		return "", fmt.Errorf("bundling failed: %w", err)
 	}
 
 	// Call the executeCode function exported by the JavaScript plugin
