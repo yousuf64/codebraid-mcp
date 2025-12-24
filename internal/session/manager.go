@@ -65,6 +65,17 @@ func (m *Manager) GetOrCreateSession(ctx context.Context, sessionID string) (*Se
 		return nil, fmt.Errorf("failed to initialize session bundle directory: %w", err)
 	}
 
+	// Setup automatic library regeneration when MCP servers notify of tool changes
+	clientHub.SetToolsRefreshedCallback(func(serverName string) {
+		log.Printf("Session %s: tools changed for server %q, regenerating libraries...", sessionID, serverName)
+
+		if err := regenerateLibForServer(session, serverName); err != nil {
+			log.Printf("Session %s: failed to regenerate libs for %q: %v", sessionID, serverName, err)
+		} else {
+			log.Printf("Session %s: successfully regenerated libs for %q", sessionID, serverName)
+		}
+	})
+
 	m.sessions[sessionID] = session
 
 	return session, nil
@@ -146,20 +157,13 @@ func (m *Manager) initializeSessionBundleDir(ctx context.Context, session *Sessi
 		return fmt.Errorf("failed to create lib dir: %w", err)
 	}
 
-	// Introspect all MCP servers and generate TypeScript libraries
-	intr := codegen.NewIntrospector(session.ClientHub)
-	allTools, err := intr.IntrospectAll(ctx)
-	if err != nil {
-		os.RemoveAll(bundleDir)
-		return fmt.Errorf("failed to introspect tools: %w", err)
-	}
-
-	groupedTools := codegen.GroupByServer(allTools)
+	// Get all tools from connected MCP servers and generate TypeScript libraries
+	allTools := session.ClientHub.Tools()
 	generator := codegen.NewTypeScriptGenerator()
 
 	// Generate and write library files
 	libs := make(map[string]string)
-	for serverName, tools := range groupedTools {
+	for serverName, tools := range allTools {
 		file, err := generator.GenerateFile(serverName, tools)
 		if err != nil {
 			os.RemoveAll(bundleDir)
@@ -195,6 +199,39 @@ func (m *Manager) initializeSessionBundleDir(ctx context.Context, session *Sessi
 	// Update session
 	session.Libs = libs
 	session.BundleDir = bundleDir
+
+	return nil
+}
+
+// regenerateLibForServer regenerates TypeScript library for a specific server
+// This is called automatically when the MCP server notifies of tool changes
+func regenerateLibForServer(session *SessionContext, serverName string) error {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+
+	// Get tools from the server (already refreshed by ClientHub notification handler)
+	tools, ok := session.ClientHub.ServerTools(serverName)
+	if !ok {
+		return fmt.Errorf("server %q not found", serverName)
+	}
+
+	// Generate TypeScript file for this server
+	generator := codegen.NewTypeScriptGenerator()
+	file, err := generator.GenerateFile(serverName, tools)
+	if err != nil {
+		return fmt.Errorf("failed to generate TypeScript: %w", err)
+	}
+
+	// Update the in-memory libs map
+	session.Libs[serverName] = file
+
+	// Update the file on disk so next bundle picks it up
+	if session.BundleDir != "" {
+		libPath := filepath.Join(session.BundleDir, "lib", fmt.Sprintf("%s.ts", serverName))
+		if err := os.WriteFile(libPath, []byte(file), 0644); err != nil {
+			return fmt.Errorf("failed to write lib to disk: %w", err)
+		}
+	}
 
 	return nil
 }

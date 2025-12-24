@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/yousuf/codebraid-mcp/internal/client"
 	"github.com/yousuf/codebraid-mcp/internal/codegen"
 	"github.com/yousuf/codebraid-mcp/internal/config"
@@ -53,47 +54,47 @@ func run() error {
 	}
 	defer clientHub.Close()
 
-	// Create introspector
-	introspector := codegen.NewIntrospector(clientHub)
+	// Get all tools from connected servers
+	allTools := clientHub.Tools()
 
-	// Determine which servers to process
-	var serversToProcess []string
+	// Filter servers if requested
+	var grouped map[string][]*mcp.Tool
 	if *serverFilter != "" {
-		serversToProcess = strings.Split(*serverFilter, ",")
-		for i := range serversToProcess {
-			serversToProcess[i] = strings.TrimSpace(serversToProcess[i])
+		// Parse and filter requested servers
+		requestedServers := strings.Split(*serverFilter, ",")
+		grouped = make(map[string][]*mcp.Tool)
+
+		for _, serverName := range requestedServers {
+			serverName = strings.TrimSpace(serverName)
+			if tools, ok := allTools[serverName]; ok {
+				grouped[serverName] = tools
+			} else {
+				fmt.Fprintf(os.Stderr, "Warning: server %q not found\n", serverName)
+			}
+		}
+
+		if len(grouped) == 0 {
+			return fmt.Errorf("none of the requested servers were found")
 		}
 	} else {
-		serversToProcess = introspector.ListServers()
+		grouped = allTools
 	}
 
 	if *verbose {
-		fmt.Printf("Processing servers: %v\n", serversToProcess)
-	}
-
-	// Introspect tools
-	if *verbose {
+		serverNames := make([]string, 0, len(grouped))
+		for name := range grouped {
+			serverNames = append(serverNames, name)
+		}
+		fmt.Printf("Processing servers: %v\n", serverNames)
 		fmt.Println("Discovering tools...")
-	}
-	allTools := make([]codegen.ToolDefinition, 0)
-	for _, serverName := range serversToProcess {
-		tools, err := introspector.IntrospectServer(ctx, serverName)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to introspect server %q: %v\n", serverName, err)
-			continue
-		}
-		allTools = append(allTools, tools...)
-		if *verbose {
-			fmt.Printf("  %s: %d tools\n", serverName, len(tools))
+		for name, tools := range grouped {
+			fmt.Printf("  %s: %d tools\n", name, len(tools))
 		}
 	}
 
-	if len(allTools) == 0 {
+	if len(grouped) == 0 {
 		return fmt.Errorf("no tools found")
 	}
-
-	// Group by server
-	grouped := codegen.GroupByServer(allTools)
 
 	// Create output directory
 	if err := os.MkdirAll(*outputDir, 0755); err != nil {

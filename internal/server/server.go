@@ -181,42 +181,25 @@ exec();
 
 		var output bytes.Buffer
 
-		if args.WithDescriptions || args.WithFunctions {
-			tools := sessionCtx.ClientHub.GetToolsWithDescription()
+		allTools := sessionCtx.ClientHub.Tools()
 
-			for svr, toolList := range tools {
-				output.WriteString(fmt.Sprintf("%s.ts (%d functions)\n", svr, len(toolList)))
+		for svr, toolList := range allTools {
+			output.WriteString(fmt.Sprintf("%s.ts (%d functions)\n", svr, len(toolList)))
 
-				for i, tool := range toolList {
-					prefix := "├──"
-					if i == len(toolList)-1 {
-						prefix = "└──"
-					}
-
-					funcName := toCamelCase(tool.Name)
-					if args.WithDescriptions && tool.Description != "" {
-						output.WriteString(fmt.Sprintf("%s %s() - %s\n", prefix, funcName, tool.Description))
-					} else {
-						output.WriteString(fmt.Sprintf("%s %s()\n", prefix, funcName))
-					}
+			for i, tool := range toolList {
+				prefix := "├──"
+				if i == len(toolList)-1 {
+					prefix = "└──"
 				}
-				output.WriteString("\n")
-			}
-		} else {
-			tools := sessionCtx.ClientHub.ListTools()
 
-			for svr, toolList := range tools {
-				output.WriteString(fmt.Sprintf("%s.ts (%d)\n", svr, len(toolList)))
-
-				for i, tool := range toolList {
-					prefix := "├──"
-					if i == len(toolList)-1 {
-						prefix = "└──"
-					}
-					output.WriteString(fmt.Sprintf("%s %s()\n", prefix, toCamelCase(tool.Name)))
+				funcName := toCamelCase(tool.Name)
+				if (args.WithDescriptions || args.WithFunctions) && tool.Description != "" {
+					output.WriteString(fmt.Sprintf("%s %s() - %s\n", prefix, funcName, tool.Description))
+				} else {
+					output.WriteString(fmt.Sprintf("%s %s()\n", prefix, funcName))
 				}
-				output.WriteString("\n")
 			}
+			output.WriteString("\n")
 		}
 
 		// Add mcp-types.ts at the end
@@ -243,18 +226,17 @@ exec();
 		// Normalize filename - remove .ts extension if present
 		fileName := strings.TrimSuffix(args.FileName, ".ts")
 
-		intr := codegen.NewIntrospector(sessionCtx.ClientHub)
 		tsgen := codegen.NewTypeScriptGenerator()
 		var fileContent string
 
 		if fileName == "mcp-types" {
 			fileContent = tsgen.GenerateMCPTypesFile()
 		} else {
-			// Try to introspect the server
-			tools, err := intr.IntrospectServer(ctx, fileName)
-			if err != nil {
+			// Get tools from the server
+			tools, ok := sessionCtx.ClientHub.ServerTools(fileName)
+			if !ok {
 				// Maintain file metaphor in error message
-				availableServers := intr.ListServers()
+				availableServers := sessionCtx.ClientHub.Servers()
 				availableFiles := make([]string, len(availableServers))
 				for i, s := range availableServers {
 					availableFiles[i] = s + ".ts"
@@ -296,11 +278,10 @@ exec();
 		}
 
 		// Get tools for this server
-		intr := codegen.NewIntrospector(sessionCtx.ClientHub)
-		tools, err := intr.IntrospectServer(ctx, fileName)
-		if err != nil {
+		tools, ok := sessionCtx.ClientHub.ServerTools(fileName)
+		if !ok {
 			// Maintain file metaphor in error message
-			availableServers := intr.ListServers()
+			availableServers := sessionCtx.ClientHub.Servers()
 			availableFiles := make([]string, len(availableServers))
 			for i, s := range availableServers {
 				availableFiles[i] = s + ".ts"
@@ -314,10 +295,10 @@ exec();
 		// This allows users to provide: "list_repos", "listRepos", or "ListRepos"
 		// Tool definitions come from MCP servers in snake_case (e.g., "list_repos")
 		requestedFuncName := toCamelCase(args.FunctionName)
-		var foundTool *codegen.ToolDefinition
+		var foundTool *mcp.Tool
 		for i, tool := range tools {
 			if toCamelCase(tool.Name) == requestedFuncName {
-				foundTool = &tools[i]
+				foundTool = tools[i]
 				break
 			}
 		}
@@ -334,7 +315,7 @@ exec();
 
 		// Generate TypeScript for just this one function using the existing generator
 		tsgen := codegen.NewTypeScriptGenerator()
-		functionContent, err := tsgen.GenerateFile(fileName, []codegen.ToolDefinition{*foundTool})
+		functionContent, err := tsgen.GenerateFile(fileName, []*mcp.Tool{foundTool})
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to generate function signature: %w", err)
 		}

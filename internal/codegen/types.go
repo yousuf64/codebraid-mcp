@@ -1,14 +1,5 @@
 package codegen
 
-// ToolDefinition represents a complete MCP tool with its schemas
-type ToolDefinition struct {
-	ServerName   string                 `json:"server"`
-	Name         string                 `json:"name"`
-	Description  string                 `json:"description"`
-	InputSchema  map[string]interface{} `json:"inputSchema"`
-	OutputSchema map[string]interface{} `json:"outputSchema"`
-}
-
 // TSType represents a TypeScript type definition
 type TSType struct {
 	Name        string       // Interface/type name (e.g., "GetMeArgs")

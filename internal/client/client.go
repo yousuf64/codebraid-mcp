@@ -13,13 +13,23 @@ import (
 
 // McpClient wraps an MCP client connection
 type McpClient struct {
-	name    string
-	session *mcp.ClientSession
-	tools   []*mcp.Tool
+	name           string
+	session        *mcp.ClientSession
+	tools          []*mcp.Tool
+	onToolsChanged func(serverName string) // Callback when tools change
 }
 
 // NewMcpClient creates a new MCP client based on the configuration
-func NewMcpClient(ctx context.Context, name string, cfg config.McpServerConfig) (*McpClient, error) {
+// onToolsChanged is an optional callback that will be invoked when the MCP server notifies of tool changes
+func NewMcpClient(ctx context.Context, name string, cfg config.McpServerConfig, onToolsChanged func(string)) (*McpClient, error) {
+	// Create MCP client options with tool change handler
+	clientOpts := &mcp.ClientOptions{}
+	if onToolsChanged != nil {
+		// Setup handler to be called when tools change
+		clientOpts.ToolListChangedHandler = func(ctx context.Context, req *mcp.ToolListChangedRequest) {
+			onToolsChanged(name)
+		}
+	}
 	var transport mcp.Transport
 	var err error
 	var usedTransport string
@@ -54,11 +64,11 @@ func NewMcpClient(ctx context.Context, name string, cfg config.McpServerConfig) 
 		return nil, fmt.Errorf("failed to create transport: %w", err)
 	}
 
-	// Create MCP client
+	// Create MCP client with our configured options
 	client := mcp.NewClient(&mcp.Implementation{
 		Name:    "codebraid-mcp-client",
 		Version: "1.0.0",
-	}, &mcp.ClientOptions{})
+	}, clientOpts)
 
 	// Connect to the server
 	session, err := client.Connect(ctx, transport, &mcp.ClientSessionOptions{})
@@ -88,11 +98,14 @@ func NewMcpClient(ctx context.Context, name string, cfg config.McpServerConfig) 
 		return nil, fmt.Errorf("failed to list tools: %w", err)
 	}
 
-	return &McpClient{
-		name:    name,
-		session: session,
-		tools:   toolsResult.Tools,
-	}, nil
+	mcpClient := &McpClient{
+		name:           name,
+		session:        session,
+		tools:          toolsResult.Tools,
+		onToolsChanged: onToolsChanged,
+	}
+
+	return mcpClient, nil
 }
 
 // createStdioTransport creates a stdio transport

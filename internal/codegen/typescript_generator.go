@@ -3,6 +3,8 @@ package codegen
 import (
 	"fmt"
 	"strings"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // TypeScriptGenerator generates TypeScript files from tool definitions
@@ -18,7 +20,7 @@ func NewTypeScriptGenerator() *TypeScriptGenerator {
 }
 
 // GenerateFile generates a complete TypeScript file for a server's tools
-func (g *TypeScriptGenerator) GenerateFile(serverName string, tools []ToolDefinition) (string, error) {
+func (g *TypeScriptGenerator) GenerateFile(serverName string, tools []*mcp.Tool) (string, error) {
 	if len(tools) == 0 {
 		return "", fmt.Errorf("no tools provided for server %q", serverName)
 	}
@@ -40,25 +42,34 @@ func (g *TypeScriptGenerator) GenerateFile(serverName string, tools []ToolDefini
 	for _, tool := range tools {
 		// Generate args interface if inputSchema exists
 		argsTypeName := ""
-		if tool.InputSchema != nil && len(tool.InputSchema) > 0 {
-			argsTypeName = toPascalCase(tool.Name) + "Args"
-			argsType, err := g.converter.ConvertSchema(tool.InputSchema, argsTypeName)
-			if err != nil {
-				return "", fmt.Errorf("failed to convert input schema for %q: %w", tool.Name, err)
+		if tool.InputSchema != nil {
+			// Type assert to map[string]interface{} for schema conversion
+			if inputSchema, ok := tool.InputSchema.(map[string]interface{}); ok && len(inputSchema) > 0 {
+				argsTypeName = toPascalCase(tool.Name) + "Args"
+				argsType, err := g.converter.ConvertSchema(inputSchema, argsTypeName)
+				if err != nil {
+					return "", fmt.Errorf("failed to convert input schema for %q: %w", tool.Name, err)
+				}
+				file.Interfaces = append(file.Interfaces, argsType)
 			}
-			file.Interfaces = append(file.Interfaces, argsType)
 		}
 
 		// Generate result interface if outputSchema exists
 		returnType := "CallToolResult"
-		if tool.OutputSchema != nil && len(tool.OutputSchema) > 0 {
-			resultTypeName := toPascalCase(tool.Name) + "Result"
-			resultType, err := g.converter.ConvertSchema(tool.OutputSchema, resultTypeName)
-			if err != nil {
-				return "", fmt.Errorf("failed to convert output schema for %q: %w", tool.Name, err)
+		if tool.OutputSchema != nil {
+			// Type assert to map[string]interface{} for schema conversion
+			if outputSchema, ok := tool.OutputSchema.(map[string]interface{}); ok && len(outputSchema) > 0 {
+				resultTypeName := toPascalCase(tool.Name) + "Result"
+				resultType, err := g.converter.ConvertSchema(outputSchema, resultTypeName)
+				if err != nil {
+					return "", fmt.Errorf("failed to convert output schema for %q: %w", tool.Name, err)
+				}
+				file.Interfaces = append(file.Interfaces, resultType)
+				returnType = resultTypeName
+			} else {
+				// OutputSchema present but not a valid map, use default
+				needsMCPTypes = true
 			}
-			file.Interfaces = append(file.Interfaces, resultType)
-			returnType = resultTypeName
 		} else {
 			// No outputSchema, use default MCP type
 			needsMCPTypes = true
