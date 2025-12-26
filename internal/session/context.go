@@ -13,8 +13,7 @@ type SessionContext struct {
 	SessionID      string
 	ClientHub      *client.McpClientHub
 	CreatedAt      time.Time
-	Libs           map[string]string // Generated TypeScript library files
-	BundleDir      string            // Persistent directory for libs and bundling workspace
+	BundleDir      string // Persistent directory for libs and bundling workspace
 	lastAccessedAt time.Time
 	mu             sync.RWMutex
 }

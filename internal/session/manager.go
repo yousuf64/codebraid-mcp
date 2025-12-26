@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/yousuf/codebraid-mcp/internal/bundler"
@@ -13,6 +14,26 @@ import (
 	"github.com/yousuf/codebraid-mcp/internal/codegen"
 	"github.com/yousuf/codebraid-mcp/internal/config"
 )
+
+// toCamelCase converts snake_case to camelCase
+func toCamelCase(s string) string {
+	parts := strings.Split(s, "_")
+	if len(parts) == 0 {
+		return s
+	}
+
+	// First part stays lowercase
+	result := parts[0]
+
+	// Capitalize first letter of remaining parts
+	for _, part := range parts[1:] {
+		if len(part) > 0 {
+			result += strings.ToUpper(part[:1]) + part[1:]
+		}
+	}
+
+	return result
+}
 
 // Manager manages session contexts
 type Manager struct {
@@ -150,39 +171,65 @@ func (m *Manager) initializeSessionBundleDir(ctx context.Context, session *Sessi
 		return fmt.Errorf("failed to create bundle dir: %w", err)
 	}
 
-	// Create lib directory
-	libDir := filepath.Join(bundleDir, "lib")
-	if err := os.Mkdir(libDir, 0755); err != nil {
+	// Create servers directory
+	serversDir := filepath.Join(bundleDir, "servers")
+	if err := os.Mkdir(serversDir, 0755); err != nil {
 		os.RemoveAll(bundleDir)
-		return fmt.Errorf("failed to create lib dir: %w", err)
+		return fmt.Errorf("failed to create servers dir: %w", err)
 	}
 
 	// Get all tools from connected MCP servers and generate TypeScript libraries
 	allTools := session.ClientHub.Tools()
 	generator := codegen.NewTypeScriptGenerator()
 
-	// Generate and write library files
-	libs := make(map[string]string)
+	// Generate and write per-function library files for each server
+	serverNames := make([]string, 0, len(allTools))
 	for serverName, tools := range allTools {
-		file, err := generator.GenerateFile(serverName, tools)
-		if err != nil {
+		// Create server directory
+		serverDir := filepath.Join(serversDir, serverName)
+		if err := os.Mkdir(serverDir, 0755); err != nil {
 			os.RemoveAll(bundleDir)
-			return fmt.Errorf("failed to generate lib for %s: %w", serverName, err)
+			return fmt.Errorf("failed to create server dir %s: %w", serverName, err)
 		}
 
-		libs[serverName] = file
+		// Generate a file for each tool/function
+		for _, tool := range tools {
+			functionName := toCamelCase(tool.Name)
+			functionContent, err := generator.GenerateFunctionFile(serverName, tool)
+			if err != nil {
+				os.RemoveAll(bundleDir)
+				return fmt.Errorf("failed to generate function %s for %s: %w", functionName, serverName, err)
+			}
 
-		// Write to disk
-		libPath := filepath.Join(libDir, fmt.Sprintf("%s.ts", serverName))
-		if err := os.WriteFile(libPath, []byte(file), 0644); err != nil {
-			os.RemoveAll(bundleDir)
-			return fmt.Errorf("failed to write lib %s: %w", serverName, err)
+			functionPath := filepath.Join(serverDir, fmt.Sprintf("%s.ts", functionName))
+			if err := os.WriteFile(functionPath, []byte(functionContent), 0644); err != nil {
+				os.RemoveAll(bundleDir)
+				return fmt.Errorf("failed to write function %s for %s: %w", functionName, serverName, err)
+			}
 		}
+
+		// Generate server index.ts
+		indexContent := generator.GenerateServerIndexFile(serverName, tools)
+		indexPath := filepath.Join(serverDir, "index.ts")
+		if err := os.WriteFile(indexPath, []byte(indexContent), 0644); err != nil {
+			os.RemoveAll(bundleDir)
+			return fmt.Errorf("failed to write index.ts for %s: %w", serverName, err)
+		}
+
+		serverNames = append(serverNames, serverName)
+	}
+
+	// Generate top-level index.ts
+	topIndexContent := generator.GenerateIndexFile(serverNames)
+	topIndexPath := filepath.Join(serversDir, "index.ts")
+	if err := os.WriteFile(topIndexPath, []byte(topIndexContent), 0644); err != nil {
+		os.RemoveAll(bundleDir)
+		return fmt.Errorf("failed to write top-level index.ts: %w", err)
 	}
 
 	// Write mcp-types.ts
 	mcpTypesContent := generator.GenerateMCPTypesFile()
-	mcpTypesPath := filepath.Join(libDir, "mcp-types.ts")
+	mcpTypesPath := filepath.Join(serversDir, "mcp-types.ts")
 	if err := os.WriteFile(mcpTypesPath, []byte(mcpTypesContent), 0644); err != nil {
 		os.RemoveAll(bundleDir)
 		return fmt.Errorf("failed to write mcp-types.ts: %w", err)
@@ -197,7 +244,6 @@ func (m *Manager) initializeSessionBundleDir(ctx context.Context, session *Sessi
 	}
 
 	// Update session
-	session.Libs = libs
 	session.BundleDir = bundleDir
 
 	return nil
@@ -215,22 +261,39 @@ func regenerateLibForServer(session *SessionContext, serverName string) error {
 		return fmt.Errorf("server %q not found", serverName)
 	}
 
-	// Generate TypeScript file for this server
-	generator := codegen.NewTypeScriptGenerator()
-	file, err := generator.GenerateFile(serverName, tools)
-	if err != nil {
-		return fmt.Errorf("failed to generate TypeScript: %w", err)
+	// Remove old server directory
+	serverDir := filepath.Join(session.BundleDir, "servers", serverName)
+	if err := os.RemoveAll(serverDir); err != nil {
+		return fmt.Errorf("failed to remove old server dir: %w", err)
 	}
 
-	// Update the in-memory libs map
-	session.Libs[serverName] = file
+	// Create fresh server directory
+	if err := os.Mkdir(serverDir, 0755); err != nil {
+		return fmt.Errorf("failed to create server dir: %w", err)
+	}
 
-	// Update the file on disk so next bundle picks it up
-	if session.BundleDir != "" {
-		libPath := filepath.Join(session.BundleDir, "lib", fmt.Sprintf("%s.ts", serverName))
-		if err := os.WriteFile(libPath, []byte(file), 0644); err != nil {
-			return fmt.Errorf("failed to write lib to disk: %w", err)
+	// Generate TypeScript files for this server
+	generator := codegen.NewTypeScriptGenerator()
+
+	// Generate a file for each tool/function
+	for _, tool := range tools {
+		functionName := toCamelCase(tool.Name)
+		functionContent, err := generator.GenerateFunctionFile(serverName, tool)
+		if err != nil {
+			return fmt.Errorf("failed to generate function %s: %w", functionName, err)
 		}
+
+		functionPath := filepath.Join(serverDir, fmt.Sprintf("%s.ts", functionName))
+		if err := os.WriteFile(functionPath, []byte(functionContent), 0644); err != nil {
+			return fmt.Errorf("failed to write function %s: %w", functionName, err)
+		}
+	}
+
+	// Generate server index.ts
+	indexContent := generator.GenerateServerIndexFile(serverName, tools)
+	indexPath := filepath.Join(serverDir, "index.ts")
+	if err := os.WriteFile(indexPath, []byte(indexContent), 0644); err != nil {
+		return fmt.Errorf("failed to write index.ts: %w", err)
 	}
 
 	return nil

@@ -88,7 +88,7 @@ func findRspack() (string, error) {
 }
 
 // BundleWithSession bundles TypeScript code using a session's bundle directory
-// This allows reuse of library files across multiple requests in the same session
+// This allows reuse of server library files across multiple requests in the same session
 func (b *Bundler) BundleWithSession(sessionBundleDir, code string) (js string, sourceMap string, err error) {
 	// Create unique work directory for this request
 	workID, err := generateWorkID()
@@ -102,11 +102,11 @@ func (b *Bundler) BundleWithSession(sessionBundleDir, code string) (js string, s
 	}
 	defer os.RemoveAll(workDir)
 
-	// Symlink to shared lib directory
-	libSrc := filepath.Join(sessionBundleDir, "lib")
-	libDst := filepath.Join(workDir, "lib")
-	if err := os.Symlink(libSrc, libDst); err != nil {
-		return "", "", fmt.Errorf("failed to create lib symlink: %w", err)
+	// Symlink to shared servers directory
+	serversSrc := filepath.Join(sessionBundleDir, "servers")
+	serversDst := filepath.Join(workDir, "servers")
+	if err := os.Symlink(serversSrc, serversDst); err != nil {
+		return "", "", fmt.Errorf("failed to create servers symlink: %w", err)
 	}
 
 	// Write user code
@@ -128,6 +128,7 @@ func (b *Bundler) BundleWithSession(sessionBundleDir, code string) (js string, s
 	}
 
 	var stdout bytes.Buffer
+	cmd.Dir = workDir
 	cmd.Stdout = &stdout
 
 	if err := cmd.Run(); err != nil {
@@ -156,4 +157,3 @@ func generateWorkID() (string, error) {
 	}
 	return hex.EncodeToString(bytes), nil
 }
-

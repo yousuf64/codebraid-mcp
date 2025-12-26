@@ -19,6 +19,79 @@ func NewTypeScriptGenerator() *TypeScriptGenerator {
 	}
 }
 
+// GenerateFunctionFile generates a single TypeScript file for one function with inline types
+func (g *TypeScriptGenerator) GenerateFunctionFile(serverName string, tool *mcp.Tool) (string, error) {
+	if tool == nil {
+		return "", fmt.Errorf("no tool provided for server %q", serverName)
+	}
+
+	// Reset converter for each file
+	g.converter = NewSchemaConverter()
+
+	file := &TSFile{
+		ServerName: serverName,
+		Imports:    []string{},
+		Interfaces: []*TSType{},
+		Functions:  []*TSFunction{},
+	}
+
+	// Track if we need to import MCP types
+	needsMCPTypes := false
+
+	// Generate args interface if inputSchema exists
+	argsTypeName := ""
+	if tool.InputSchema != nil {
+		if inputSchema, ok := tool.InputSchema.(map[string]interface{}); ok && len(inputSchema) > 0 {
+			argsTypeName = toPascalCase(tool.Name) + "Args"
+			argsType, err := g.converter.ConvertSchema(inputSchema, argsTypeName)
+			if err != nil {
+				return "", fmt.Errorf("failed to convert input schema for %q: %w", tool.Name, err)
+			}
+			file.Interfaces = append(file.Interfaces, argsType)
+		}
+	}
+
+	// Generate result interface if outputSchema exists
+	returnType := "CallToolResult"
+	if tool.OutputSchema != nil {
+		if outputSchema, ok := tool.OutputSchema.(map[string]interface{}); ok && len(outputSchema) > 0 {
+			resultTypeName := toPascalCase(tool.Name) + "Result"
+			resultType, err := g.converter.ConvertSchema(outputSchema, resultTypeName)
+			if err != nil {
+				return "", fmt.Errorf("failed to convert output schema for %q: %w", tool.Name, err)
+			}
+			file.Interfaces = append(file.Interfaces, resultType)
+			returnType = resultTypeName
+		} else {
+			needsMCPTypes = true
+		}
+	} else {
+		needsMCPTypes = true
+	}
+
+	// Generate function
+	function := &TSFunction{
+		Name:         toCamelCase(tool.Name),
+		Description:  tool.Description,
+		ServerName:   serverName,
+		ToolName:     tool.Name,
+		ArgsTypeName: argsTypeName,
+		ReturnType:   returnType,
+		HasArgs:      argsTypeName != "",
+	}
+	file.Functions = append(file.Functions, function)
+
+	// Collect all generated types (including nested ones)
+	g.collectNestedTypes(file)
+
+	// Add imports if needed
+	if needsMCPTypes {
+		file.Imports = append(file.Imports, "import type { CallToolResult } from '../mcp-types';")
+	}
+
+	return g.renderFile(file), nil
+}
+
 // GenerateFile generates a complete TypeScript file for a server's tools
 func (g *TypeScriptGenerator) GenerateFile(serverName string, tools []*mcp.Tool) (string, error) {
 	if len(tools) == 0 {
@@ -289,22 +362,49 @@ func (g *TypeScriptGenerator) renderFunction(fn *TSFunction) string {
 	return sb.String()
 }
 
-// GenerateIndexFile generates an index.ts that re-exports all servers
+// GenerateServerIndexFile generates an index.ts for a server directory that re-exports all functions
+func (g *TypeScriptGenerator) GenerateServerIndexFile(serverName string, tools []*mcp.Tool) string {
+	var sb strings.Builder
+
+	sb.WriteString("/**\n")
+	sb.WriteString(fmt.Sprintf(" * %s MCP Server Tools\n", serverName))
+	sb.WriteString(fmt.Sprintf(" * Generated from MCP server: %s\n", serverName))
+	sb.WriteString(" * This file is auto-generated. Do not edit manually.\n")
+	sb.WriteString(" */\n\n")
+
+	// Export each function
+	for _, tool := range tools {
+		funcName := toCamelCase(tool.Name)
+		sb.WriteString(fmt.Sprintf("export * from './%s';\n", funcName))
+	}
+
+	return sb.String()
+}
+
+// GenerateIndexFile generates an index.ts that re-exports all servers with namespace pattern
 func (g *TypeScriptGenerator) GenerateIndexFile(serverNames []string) string {
 	var sb strings.Builder
 
 	sb.WriteString("/**\n")
-	sb.WriteString(" * Generated MCP tool index\n")
+	sb.WriteString(" * All MCP Server Tools\n")
+	sb.WriteString(" * \n")
+	sb.WriteString(" * RECOMMENDED: Import with namespace pattern for clean, organized code:\n")
+	sb.WriteString(" * \n")
+	sb.WriteString(" *   import * as github from './lib/github';\n")
+	sb.WriteString(" *   import * as filesystem from './lib/filesystem';\n")
+	sb.WriteString(" * \n")
+	sb.WriteString(" * This provides excellent autocomplete and clear function origins.\n")
 	sb.WriteString(" * This file is auto-generated. Do not edit manually.\n")
 	sb.WriteString(" */\n\n")
 
-	// Export MCP types
-	sb.WriteString("export * from './mcp-types';\n\n")
-
-	// Export each server
+	// Export each server as namespace
 	for _, serverName := range serverNames {
 		sb.WriteString(fmt.Sprintf("export * as %s from './%s';\n", serverName, serverName))
 	}
+
+	// Also export MCP types
+	sb.WriteString("\n// Common MCP types\n")
+	sb.WriteString("export * from './mcp-types';\n")
 
 	return sb.String()
 }

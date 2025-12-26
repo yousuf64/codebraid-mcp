@@ -14,6 +14,35 @@ import (
 	"github.com/yousuf/codebraid-mcp/internal/config"
 )
 
+// toCamelCase converts snake_case or kebab-case to camelCase
+func toCamelCase(s string) string {
+	if len(s) == 0 {
+		return s
+	}
+
+	// If already camelCase or PascalCase (no underscores/dashes/spaces), just ensure first char is lowercase
+	if !strings.ContainsAny(s, "_- ") {
+		return strings.ToLower(s[0:1]) + s[1:]
+	}
+
+	// Split by underscore, dash, or space
+	parts := strings.FieldsFunc(s, func(r rune) bool {
+		return r == '_' || r == '-' || r == ' '
+	})
+
+	for i, part := range parts {
+		if len(part) > 0 {
+			if i == 0 {
+				parts[i] = strings.ToLower(part)
+			} else {
+				parts[i] = strings.ToUpper(part[0:1]) + part[1:]
+			}
+		}
+	}
+
+	return strings.Join(parts, "")
+}
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -105,28 +134,52 @@ func run() error {
 	generator := codegen.NewTypeScriptGenerator()
 
 	generatedServers := make([]string, 0, len(grouped))
+	totalFunctions := 0
 
 	for serverName, tools := range grouped {
 		if *verbose {
-			fmt.Printf("Generating %s.ts...\n", serverName)
+			fmt.Printf("Generating %s/ directory with %d functions...\n", serverName, len(tools))
 		}
 
-		content, err := generator.GenerateFile(serverName, tools)
-		if err != nil {
-			return fmt.Errorf("failed to generate file for %q: %w", serverName, err)
+		// Create server directory
+		serverDir := filepath.Join(*outputDir, serverName)
+		if err := os.MkdirAll(serverDir, 0755); err != nil {
+			return fmt.Errorf("failed to create server directory %s: %w", serverDir, err)
 		}
 
-		outputPath := filepath.Join(*outputDir, serverName+".ts")
-		if err := os.WriteFile(outputPath, []byte(content), 0644); err != nil {
-			return fmt.Errorf("failed to write %s: %w", outputPath, err)
+		// Generate one file per function
+		for _, tool := range tools {
+			funcName := toCamelCase(tool.Name)
+
+			content, err := generator.GenerateFunctionFile(serverName, tool)
+			if err != nil {
+				return fmt.Errorf("failed to generate function file for %s.%s: %w", serverName, tool.Name, err)
+			}
+
+			functionPath := filepath.Join(serverDir, funcName+".ts")
+			if err := os.WriteFile(functionPath, []byte(content), 0644); err != nil {
+				return fmt.Errorf("failed to write %s: %w", functionPath, err)
+			}
+
+			if *verbose {
+				fmt.Printf("  - %s/%s.ts\n", serverName, funcName)
+			}
+		}
+
+		// Generate server index.ts
+		serverIndexContent := generator.GenerateServerIndexFile(serverName, tools)
+		serverIndexPath := filepath.Join(serverDir, "index.ts")
+		if err := os.WriteFile(serverIndexPath, []byte(serverIndexContent), 0644); err != nil {
+			return fmt.Errorf("failed to write server index %s: %w", serverIndexPath, err)
 		}
 
 		generatedServers = append(generatedServers, serverName)
+		totalFunctions += len(tools)
 	}
 
 	// Generate mcp-types.ts
 	if *verbose {
-		fmt.Println("Generating mcp-types.ts...")
+		fmt.Println("\nGenerating mcp-types.ts...")
 	}
 	mcpTypesContent := generator.GenerateMCPTypesFile()
 	mcpTypesPath := filepath.Join(*outputDir, "mcp-types.ts")
@@ -134,7 +187,7 @@ func run() error {
 		return fmt.Errorf("failed to write mcp-types.ts: %w", err)
 	}
 
-	// Generate index.ts
+	// Generate top-level index.ts
 	if *verbose {
 		fmt.Println("Generating index.ts...")
 	}
@@ -144,13 +197,18 @@ func run() error {
 		return fmt.Errorf("failed to write index.ts: %w", err)
 	}
 
-	fmt.Printf("\n✓ Successfully generated TypeScript definitions for %d servers\n", len(generatedServers))
+	fmt.Printf("\n✓ Successfully generated TypeScript definitions\n")
+	fmt.Printf("  Servers: %d\n", len(generatedServers))
+	fmt.Printf("  Functions: %d\n", totalFunctions)
 	fmt.Printf("  Output directory: %s\n", *outputDir)
-	fmt.Println("\nGenerated files:")
-	fmt.Println("  - mcp-types.ts")
-	fmt.Println("  - index.ts")
+	fmt.Println("\nGenerated structure:")
+	fmt.Println("  ./lib/")
+	fmt.Println("  ├── mcp-types.ts")
+	fmt.Println("  ├── index.ts")
 	for _, server := range generatedServers {
-		fmt.Printf("  - %s.ts\n", server)
+		fmt.Printf("  └── %s/\n", server)
+		fmt.Printf("      ├── index.ts\n")
+		fmt.Printf("      └── [%d function files]\n", len(grouped[server]))
 	}
 
 	return nil
