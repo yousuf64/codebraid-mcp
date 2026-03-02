@@ -209,7 +209,7 @@ func (g *PythonGenerator) renderClass(c *PyClass) string {
 	// Class docstring
 	if c.Description != "" {
 		sb.WriteString(fmt.Sprintf("class %s(TypedDict):\n", c.Name))
-		sb.WriteString(fmt.Sprintf("    \"\"\"%s\"\"\"\n", sanitizeComment(c.Description)))
+		sb.WriteString(fmt.Sprintf("    \"\"\"%s\"\"\"\n", sanitizePythonComment(c.Description)))
 	} else {
 		sb.WriteString(fmt.Sprintf("class %s(TypedDict):\n", c.Name))
 	}
@@ -220,7 +220,7 @@ func (g *PythonGenerator) renderClass(c *PyClass) string {
 	} else {
 		for _, prop := range c.Properties {
 			if prop.Description != "" {
-				sb.WriteString(fmt.Sprintf("    # %s\n", sanitizeComment(prop.Description)))
+				sb.WriteString(fmt.Sprintf("    # %s\n", sanitizePythonComment(prop.Description)))
 			}
 			sb.WriteString(fmt.Sprintf("    %s: %s\n", prop.Name, prop.TypeHint))
 		}
@@ -244,7 +244,7 @@ func (g *PythonGenerator) renderFunction(fn *PyFunction) string {
 	// Docstring
 	sb.WriteString("    \"\"\"\n")
 	if fn.Description != "" {
-		sb.WriteString(fmt.Sprintf("    %s\n", sanitizeComment(fn.Description)))
+		sb.WriteString(fmt.Sprintf("    %s\n", sanitizePythonComment(fn.Description)))
 		sb.WriteString("    \n")
 	} else {
 		sb.WriteString(fmt.Sprintf("    Call tool: %s\n", fn.ToolName))
@@ -265,6 +265,29 @@ func (g *PythonGenerator) renderFunction(fn *PyFunction) string {
 	return sb.String()
 }
 
+// sanitizePythonComment sanitizes a comment string for Python
+// It handles multi-line descriptions by prefixing each line with "# "
+func sanitizePythonComment(comment string) string {
+	// Split on newlines
+	lines := strings.Split(comment, "\n")
+
+	// If single line, just return it
+	if len(lines) == 1 {
+		return comment
+	}
+
+	// Multi-line: prefix each line with "# " and join
+	var result []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+
+	return strings.Join(result, "\n    # ")
+}
+
 // GenerateServerInitFile generates an __init__.py for a server directory that re-exports all functions
 func (g *PythonGenerator) GenerateServerInitFile(serverName string, tools []*mcp.Tool) string {
 	var sb strings.Builder
@@ -274,18 +297,63 @@ func (g *PythonGenerator) GenerateServerInitFile(serverName string, tools []*mcp
 	sb.WriteString("This file is auto-generated. Do not edit manually.\n")
 	sb.WriteString("\"\"\"\n\n")
 
-	// Import and re-export each function
+	// Import and re-export each function along with its type classes
 	for _, tool := range tools {
 		moduleName := strutil.ToSnakeCase(tool.Name)
 		funcName := strutil.ToSnakeCase(tool.Name)
-		sb.WriteString(fmt.Sprintf("from .%s import %s\n", moduleName, funcName))
+		argsTypeName := strutil.ToPascalCase(tool.Name) + "Args"
+		resultTypeName := strutil.ToPascalCase(tool.Name) + "Result"
+
+		// Build import list for this tool
+		imports := []string{funcName}
+
+		// Add Args type if input schema exists
+		if tool.InputSchema != nil {
+			if inputSchema, ok := tool.InputSchema.(map[string]interface{}); ok && len(inputSchema) > 0 {
+				imports = append(imports, argsTypeName)
+			}
+		}
+
+		// Add Result type if output schema exists
+		if tool.OutputSchema != nil {
+			if outputSchema, ok := tool.OutputSchema.(map[string]interface{}); ok && len(outputSchema) > 0 {
+				imports = append(imports, resultTypeName)
+			}
+		}
+
+		// Generate import statement
+		sb.WriteString(fmt.Sprintf("from .%s import %s\n", moduleName, strings.Join(imports, ", ")))
 	}
 
+	// Generate __all__ list with functions and types
 	sb.WriteString("\n__all__ = [\n")
-	for i, tool := range tools {
+	allExports := []string{}
+	for _, tool := range tools {
 		funcName := strutil.ToSnakeCase(tool.Name)
-		sb.WriteString(fmt.Sprintf("    %q", funcName))
-		if i < len(tools)-1 {
+		argsTypeName := strutil.ToPascalCase(tool.Name) + "Args"
+		resultTypeName := strutil.ToPascalCase(tool.Name) + "Result"
+
+		// Always export the function
+		allExports = append(allExports, funcName)
+
+		// Export Args type if input schema exists
+		if tool.InputSchema != nil {
+			if inputSchema, ok := tool.InputSchema.(map[string]interface{}); ok && len(inputSchema) > 0 {
+				allExports = append(allExports, argsTypeName)
+			}
+		}
+
+		// Export Result type if output schema exists
+		if tool.OutputSchema != nil {
+			if outputSchema, ok := tool.OutputSchema.(map[string]interface{}); ok && len(outputSchema) > 0 {
+				allExports = append(allExports, resultTypeName)
+			}
+		}
+	}
+
+	for i, exportName := range allExports {
+		sb.WriteString(fmt.Sprintf("    %q", exportName))
+		if i < len(allExports)-1 {
 			sb.WriteString(",")
 		}
 		sb.WriteString("\n")

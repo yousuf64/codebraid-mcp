@@ -297,8 +297,11 @@ func (m *Manager) generatePythonLibraries(bundleDir, serversDir string, allTools
 	// Generate and write per-function library files for each server
 	// Note: serversDir is already {bundleDir}/servers
 	for serverName, tools := range allTools {
+		// Sanitize server name for Python (replace hyphens with underscores)
+		sanitizedName := strutil.ToSnakeCase(serverName)
+
 		// Create server directory
-		serverDir := filepath.Join(serversDir, serverName)
+		serverDir := filepath.Join(serversDir, sanitizedName)
 		if err := os.Mkdir(serverDir, 0755); err != nil {
 			return fmt.Errorf("failed to create server dir %s: %w", serverName, err)
 		}
@@ -347,8 +350,15 @@ func regenerateLibForServer(session *SessionContext, serverName string) error {
 		return fmt.Errorf("server %q not found", serverName)
 	}
 
+	// Sanitize server name for Python (replace hyphens with underscores)
+	// TypeScript can handle hyphens in directory names, but Python cannot in module names
+	dirName := serverName
+	if session.Language == "python" {
+		dirName = strutil.ToSnakeCase(serverName)
+	}
+
 	// Both Python and TypeScript use the same directory structure: {bundleDir}/servers/{serverName}
-	serverDir := filepath.Join(session.BundleDir, "servers", serverName)
+	serverDir := filepath.Join(session.BundleDir, "servers", dirName)
 
 	// Remove old server directory
 	if err := os.RemoveAll(serverDir); err != nil {

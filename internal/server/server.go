@@ -146,20 +146,24 @@ Entry point:
 - All MCP tools are available as async functions
 - Use 'await' for async MCP tool calls
 
-Import MCP servers as Python modules:
-    from servers.github.github import list_repos, create_issue
-    from servers.slack.slack import post_message
+Import MCP servers as Python modules (always import from server package, NOT from .py files):
+    from servers.github import list_repos, create_issue
+    from servers.slack import post_message
+    from servers.mcp_atlassian import jira_search  # Note: hyphens become underscores
+    
+    # ✓ CORRECT: from servers.github import list_repos
+    # ✗ WRONG:   from servers.github.list_repos import list_repos  # Never import from .py files!
 
 Single-step example:
-    from servers.github.github import list_repos
+    from servers.github import list_repos
     
     repos = await list_repos({"owner": "octocat", "type": "public"})
     # Return the filtered list (last expression)
     [r for r in repos if r["stargazers_count"] > 100]
 
 Multi-step workflow example (process in sandbox, store intermediate results):
-    from servers.github.github import list_repos, list_issues
-    from servers.slack.slack import post_message
+    from servers.github import list_repos, list_issues
+    from servers.slack import post_message
     import json
     
     # Fetch data
@@ -491,13 +495,22 @@ Don't load all tools upfront. Discover on-demand:
 
 Each tool file contains complete Python type hints, docstrings, and function signatures. Read only what you need.
 
+**Note:** The .py files you see in list_directory are for inspection only. When importing, always use:
+` + "`from servers.github import list_repos`" + ` (NOT ` + "`from servers.github.list_repos import ...`" + `)
+
 ## Code Execution Pattern
 
 Write Python code that calls MCP tools as normal async functions. Your code executes directly (Jupyter-style):
 
+**IMPORTANT - Import Pattern:**
+- ✓ CORRECT: ` + "`from servers.github import list_repos`" + `
+- ✗ WRONG: ` + "`from servers.github.list_repos import list_repos`" + ` (never import from .py files)
+- Each server package has an __init__.py that exports all tools
+- Always import directly from the server package, not from individual .py files
+
 ### Simple Example: Call One Tool
 ` + "```python" + `
-from servers.github.github import list_repos
+from servers.github import list_repos
 
 repos = await list_repos({"owner": "octocat", "type": "public"})
 
@@ -507,8 +520,8 @@ repos = await list_repos({"owner": "octocat", "type": "public"})
 
 ### Realistic Example: Multi-Step Workflow with Workspace
 ` + "```python" + `
-from servers.github.github import list_repos, list_issues
-from servers.slack.slack import post_message
+from servers.github import list_repos, list_issues
+from servers.slack import post_message
 import json
 from datetime import datetime, timedelta
 
@@ -556,7 +569,7 @@ IMPORTANT: Since most MCP server tools do not explicitly document their output s
 
 ### Complex Example: Data Aggregation with State Management
 ` + "```python" + `
-from servers.github.github import list_repos
+from servers.github import list_repos
 import json
 import os
 from datetime import datetime, timedelta
@@ -654,7 +667,8 @@ os.makedirs("./workspace/cache", exist_ok=True)
 ## Technical Details
 
 - All paths start with '/'
-- Use standard Python imports: ` + "`" + `from servers.github.github import list_repos` + "`" + `
+- Use standard Python imports: ` + "`" + `from servers.github import list_repos` + "`" + `
+- Server names with hyphens are converted to underscores for Python (e.g., 'mcp-atlassian' becomes 'mcp_atlassian')
 - Last expression is automatically returned (Jupyter-style)
 - To return a variable, put it on the last line without assignment
 - Execution timeout: 30 seconds
@@ -810,7 +824,12 @@ exec();
 			for svr, toolList := range allTools {
 				serverCount++
 				prefix := "├──"
-				output.WriteString(fmt.Sprintf("%s %s/ (%d functions)\n", prefix, svr, len(toolList)))
+				// For Python, show sanitized name (hyphens -> underscores)
+				displayName := svr
+				if sessionCtx.Language == "python" {
+					displayName = strutil.ToSnakeCase(svr)
+				}
+				output.WriteString(fmt.Sprintf("%s %s/ (%d functions)\n", prefix, displayName, len(toolList)))
 			}
 
 			// Show appropriate index file based on session language
@@ -829,15 +848,53 @@ exec();
 
 		if strings.HasPrefix(path, "servers/") {
 			// List specific server directory
-			serverName := strings.TrimPrefix(path, "servers/")
-			tools, ok := sessionCtx.ClientHub.ServerTools(serverName)
-			if !ok {
-				availableServers := sessionCtx.ClientHub.Servers()
-				return nil, nil, fmt.Errorf("directory '/servers/%s/' not found. Available servers: %v",
-					serverName, availableServers)
+			requestedName := strings.TrimPrefix(path, "servers/")
+
+			// For Python, the user might provide sanitized name (with underscores)
+			// but we need to lookup by original name (with hyphens) in ClientHub
+			// Try to find matching server by checking both forms
+			var serverName string
+			var tools []*mcp.Tool
+			var ok bool
+
+			// First try exact match
+			tools, ok = sessionCtx.ClientHub.ServerTools(requestedName)
+			if ok {
+				serverName = requestedName
+			} else if sessionCtx.Language == "python" {
+				// For Python, check if any server's sanitized name matches the request
+				allServers := sessionCtx.ClientHub.Servers()
+				for _, originalName := range allServers {
+					if strutil.ToSnakeCase(originalName) == requestedName {
+						tools, ok = sessionCtx.ClientHub.ServerTools(originalName)
+						if ok {
+							serverName = originalName
+							break
+						}
+					}
+				}
 			}
 
-			output.WriteString(fmt.Sprintf("/servers/%s/\n", serverName))
+			if !ok {
+				availableServers := sessionCtx.ClientHub.Servers()
+				// Show sanitized names for Python
+				displayNames := availableServers
+				if sessionCtx.Language == "python" {
+					displayNames = make([]string, len(availableServers))
+					for i, name := range availableServers {
+						displayNames[i] = strutil.ToSnakeCase(name)
+					}
+				}
+				return nil, nil, fmt.Errorf("directory '/servers/%s/' not found. Available servers: %v",
+					requestedName, displayNames)
+			}
+
+			// Display with sanitized name for Python
+			displayName := serverName
+			if sessionCtx.Language == "python" {
+				displayName = strutil.ToSnakeCase(serverName)
+			}
+			output.WriteString(fmt.Sprintf("/servers/%s/\n", displayName))
 
 			// Determine file extension and function naming based on session language
 			var fileExt, indexFile string
