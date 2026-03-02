@@ -13,6 +13,7 @@ import (
 // DirectoryConfig defines permissions and limits for a directory
 type DirectoryConfig struct {
 	Name         string // e.g., "workspace", "cache", "temp"
+	Description  string // Optional human-readable description
 	Root         string // Absolute path on disk
 	ReadOnly     bool
 	MaxFileSize  int64
@@ -205,6 +206,29 @@ func (sfs *SandboxFileSystem) GetStats() map[string]Stats {
 		stats[name] = dir.GetStats()
 	}
 	return stats
+}
+
+// DirectoryInfo contains directory metadata
+type DirectoryInfo struct {
+	Name        string
+	Description string
+	ReadOnly    bool
+}
+
+// GetDirectoryInfo returns directory info including descriptions
+func (sfs *SandboxFileSystem) GetDirectoryInfo() []DirectoryInfo {
+	sfs.mu.RLock()
+	defer sfs.mu.RUnlock()
+
+	info := make([]DirectoryInfo, 0, len(sfs.directories))
+	for _, dir := range sfs.directories {
+		info = append(info, DirectoryInfo{
+			Name:        dir.config.Name,
+			Description: dir.config.Description,
+			ReadOnly:    dir.config.ReadOnly,
+		})
+	}
+	return info
 }
 
 // Cleanup removes all directories

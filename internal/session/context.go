@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/yousuf/runbyte/internal/client"
+	"github.com/yousuf/runbyte/internal/pythonruntime"
 	"github.com/yousuf/runbyte/internal/sandbox"
 )
 
@@ -14,8 +15,11 @@ type SessionContext struct {
 	SessionID      string
 	ClientHub      *client.McpClientHub
 	SandboxFS      *sandbox.SandboxFileSystem
+	PythonRuntime  *pythonruntime.Client // Python runtime client for Execute calls (nil for TypeScript sessions)
+	pythonServer   *pythonruntime.Server // Python runtime server for shutdown (not exported)
 	CreatedAt      time.Time
 	BundleDir      string // Persistent directory for libs and bundling workspace
+	Language       string // Runtime language for this session ("typescript" or "python")
 	lastAccessedAt time.Time
 	mu             sync.RWMutex
 }

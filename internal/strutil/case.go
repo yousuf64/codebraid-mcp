@@ -38,3 +38,29 @@ func ToCamelCase(s string) string {
 	}
 	return strings.ToLower(pascal[0:1]) + pascal[1:]
 }
+
+// ToSnakeCase converts a string to snake_case.
+// Handles PascalCase, camelCase, kebab-case, and space-separated strings.
+func ToSnakeCase(s string) string {
+	if len(s) == 0 {
+		return s
+	}
+
+	var result strings.Builder
+	for i, r := range s {
+		// Convert uppercase to lowercase and add underscore before it (except at start)
+		if r >= 'A' && r <= 'Z' {
+			if i > 0 {
+				result.WriteRune('_')
+			}
+			result.WriteRune(r + 32) // Convert to lowercase
+		} else if r == '-' || r == ' ' {
+			// Replace dash and space with underscore
+			result.WriteRune('_')
+		} else {
+			result.WriteRune(r)
+		}
+	}
+
+	return result.String()
+}

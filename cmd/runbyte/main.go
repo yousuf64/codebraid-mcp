@@ -14,14 +14,16 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/yousuf/runbyte/internal/bundler"
 	"github.com/yousuf/runbyte/internal/config"
+	"github.com/yousuf/runbyte/internal/runtime"
+	"github.com/yousuf/runbyte/internal/sandbox"
 	"github.com/yousuf/runbyte/internal/server"
 	"github.com/yousuf/runbyte/internal/session"
 	"github.com/yousuf/runbyte/pkg/wasm"
 )
 
-// getWasmBytes returns WASM bytes, preferring config path over embedded
+// getWasmBytes returns WASM bytes based on language configuration
 func getWasmBytes(cfg *config.Config) ([]byte, error) {
-	// Check for config override
+	// Check for config override (explicit WASM path)
 	if wasmPath := cfg.GetWasmPath(); wasmPath != "" {
 		data, err := os.ReadFile(wasmPath)
 		if err != nil {
@@ -30,9 +32,21 @@ func getWasmBytes(cfg *config.Config) ([]byte, error) {
 		return data, nil
 	}
 
-	// Use embedded WASM
+	// Determine which WASM to load based on language setting
+	lang, ok := runtime.ParseLanguage(cfg.GetLanguage())
+	if !ok {
+		return nil, fmt.Errorf("unsupported language: %s", cfg.GetLanguage())
+	}
+
+	// Only TypeScript WASM is supported
+	// Python uses Node.js runtime server (see internal/pythonruntime)
+	if lang != runtime.LanguageTypeScript {
+		return nil, fmt.Errorf("only TypeScript WASM is supported, got: %s (Python uses Node.js runtime)", lang)
+	}
+
+	// Use embedded TypeScript WASM
 	if len(wasm.Embedded) == 0 {
-		return nil, fmt.Errorf("embedded WASM not found - binary may not be built correctly")
+		return nil, fmt.Errorf("embedded TypeScript WASM not found - binary may not be built correctly")
 	}
 	return wasm.Embedded, nil
 }
@@ -80,13 +94,17 @@ func runStdioServer(wasmBytes []byte, sessionMgr *session.Manager) {
 }
 
 func runHttpServer(cfg *config.Config, wasmBytes []byte, sessionMgr *session.Manager, port int) {
-	// Create HTTP handler with proper session management
+	// Create a single MCP server instance to be reused across requests
+	// This maintains session state properly
+	mcpServer := server.NewMcpServer(wasmBytes, sessionMgr)
+
+	// Create HTTP handler
 	handler := mcp.NewStreamableHTTPHandler(func(req *http.Request) *mcp.Server {
-		// Create a new MCP server instance for each request
-		// This allows the SDK to manage sessions properly
-		return server.NewMcpServer(wasmBytes, sessionMgr)
+		// Return the same server instance for all requests
+		// The SDK handles session management internally
+		return mcpServer
 	}, &mcp.StreamableHTTPOptions{
-		Stateless:      false,
+		Stateless:      true, // MCP SDK doesn't manage sessions - Runbyte handles sessions via session.Manager
 		JSONResponse:   false,
 		Logger:         nil,
 		EventStore:     nil,
@@ -170,10 +188,47 @@ func main() {
 	// Create session manager
 	sessionMgr := session.NewManager(cfg)
 
-	// Load WASM bytes (embedded or from config)
-	wasmBytes, err := getWasmBytes(cfg)
+	// Start MCP callback server for Python runtime tool calls
+	// This server routes tool calls from Python runtimes back to MCP servers
+	ctx := context.Background()
+	mcpCallbackPort, err := sandbox.StartMcpCallbackServer(ctx, func(sessionID string) (sandbox.McpToolCaller, error) {
+		sess := sessionMgr.GetSession(sessionID)
+		if sess == nil {
+			return nil, fmt.Errorf("session not found: %s", sessionID)
+		}
+		return sess.ClientHub, nil
+	})
 	if err != nil {
-		log.Fatalf("Failed to load WASM: %v", err)
+		log.Fatalf("Failed to start MCP callback server: %v", err)
+	}
+	log.Printf("MCP callback server started on port %d", mcpCallbackPort)
+
+	// Set the callback port in session manager
+	sessionMgr.SetMcpCallbackPort(mcpCallbackPort)
+
+	// Start session cleanup worker
+	sessionTimeout := time.Duration(cfg.GetSessionTimeout()) * time.Minute
+	cleanupInterval := time.Duration(cfg.GetSessionCleanupInterval()) * time.Minute
+	if sessionTimeout > 0 {
+		log.Printf("Starting session cleanup worker (timeout: %v, interval: %v)", sessionTimeout, cleanupInterval)
+		sessionMgr.StartCleanupWorker(cleanupInterval, sessionTimeout)
+	} else {
+		log.Println("Session timeout disabled (sessionTimeout = 0)")
+	}
+
+	// Load WASM bytes (only for TypeScript runtime)
+	// Python uses Node.js runtime server instead
+	var wasmBytes []byte
+	lang, _ := runtime.ParseLanguage(cfg.GetLanguage())
+	if lang == runtime.LanguageTypeScript {
+		var err error
+		wasmBytes, err = getWasmBytes(cfg)
+		if err != nil {
+			log.Fatalf("Failed to load WASM: %v", err)
+		}
+		log.Println("TypeScript WASM runtime loaded")
+	} else {
+		log.Println("Python runtime mode - using Node.js server (no WASM)")
 	}
 
 	// Route to appropriate transport mode

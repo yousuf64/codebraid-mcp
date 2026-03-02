@@ -1,0 +1,20 @@
+{
+  "name": "@runbyte/python-runtime",
+  "version": "1.0.0",
+  "description": "Python runtime server for Runbyte using Pyodide and Node.js",
+  "private": true,
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --inspect server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "pyodide": "^0.26.4"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
